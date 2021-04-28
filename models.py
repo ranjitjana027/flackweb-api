@@ -11,12 +11,17 @@ class BaseMixin(object):
         db.session.commit()
         return obj
 
-class User(BaseMixin, db.Model):
+class TimestampMixin(object):
+    created=db.Column(db.DateTime(timezone=True), nullable=False, server_default=db.func.current_timestamp())
+    updated=db.Column(db.DateTime(timezone=True),onupdate=db.func.current_timestamp())
+
+
+class User(BaseMixin, TimestampMixin, db.Model):
     __tablename__="users"
     user_id=db.Column(db.Integer,primary_key=True)
-    username=db.Column(db.String,unique=True, nullable=False) #add nullable=False
+    username=db.Column(db.String,unique=True, nullable=False) #Email ID
     password=db.Column(db.String,nullable=False)
-    display_name=db.Column(db.String)
+    display_name=db.Column(db.String,nullable=False)
     verified=db.Column(db.Boolean,default=True)
     channels=db.relationship("Channel",secondary="members",backref=db.backref("users"))
     messages=db.relationship("Message",backref="user", lazy=True)
@@ -60,37 +65,72 @@ class Member(BaseMixin, db.Model):
     __tablename__="members"
     id=db.Column(db.Integer,primary_key=True)
     user_id=db.Column(db.Integer,db.ForeignKey("users.user_id"),nullable=False)
-    channel_id=db.Column(db.Integer,db.ForeignKey("channels.id"),nullable=False)
+    channel_id=db.Column(db.String,db.ForeignKey("channels.id"),nullable=False)
+    last_message_read=db.Column(db.Integer, db.ForeignKey("messages.id"), nullable=True)
 
     #user=db.relationship("User",backref=db.backref("members",cascade="all, delete-orphan"))
     #channel=db.relationship("Channel",backref=db.backref("members",cascade="all, delete-orphan"))
 
 
-class Channel(BaseMixin, db.Model):
+class Channel(BaseMixin, TimestampMixin, db.Model):
     __tablename__="channels"
     #username=db.Column(db.String,db.ForeignKey("users.username"),nullable=False)
-    id=db.Column(db.Integer,primary_key=True)
-    channel=db.Column(db.String, nullable=False)
+    id=db.Column(db.String,primary_key=True) # channel id, public url
+    title=db.Column(db.String, nullable=False) # change to title
+
+
     #users=db.relationship("User",secondary="members")
 
-    messages=db.relationship('Message', backref="channel", lazy=True)
+    messages=db.relationship('Message', backref="channel", lazy='dynamic', order_by="Message.dttm")
 
     def __repr__(self):
-        return f"< {self.channel} | {len(self.users)} Members >"
+        return f"< {self.title} | {len(self.users)} Members >"
+
+    def preview(self):
+        last_message= None if self.messages.count()==0 else self.messages[-1]
+        members_count=len(self.users)
+        return {
+        'channel_id':self.id,
+        'channel_name': self.title,
+        'last_message': None if last_message is None else last_message.to_json(),
+        'members_count': members_count,
+        'created_on': self.created
+        }
 
     @classmethod
-    def exists(cls, room: str) -> 'Channel':
-        channel=Channel.query.filter_by(channel=room).first()
-        return channel
+    def exists(cls,id:str=None, title: str=None) -> 'Channel':
+        if id is not None:
+            return Channel.query.get(id)
+        return Channel.query.filter_by(title=title).first()
+
+    @classmethod
+    def matches(cls,title: str):
+        channels=Channel.query.filter(Channel.title.ilike(f"%{title}%")).all()
+        return {
+            'title': title,
+            'matches': [c.preview() for c in channels]
+        }
+
 
 class Message(BaseMixin, db.Model):
     __tablename__="messages"
     id=db.Column(db.Integer,primary_key=True)
-    channel_id=db.Column(db.Integer,db.ForeignKey("channels.id"),nullable=False) # receiver
-    user_id=db.Column(db.Integer,db.ForeignKey("users.user_id"),nullable=False)  # sender
+    channel_id=db.Column(db.String,db.ForeignKey("channels.id"),nullable=True) # receiver channel
+    user_id=db.Column(db.Integer,db.ForeignKey("users.user_id"),nullable=True)  # sender
     message=db.Column(db.String(255),nullable=False)
-    dttm=db.Column(db.DateTime,server_default=db.func.current_timestamp())
+    dttm=db.Column(db.DateTime(timezone=True),server_default=db.func.current_timestamp())
+    status=db.Column(db.Boolean,default=False)
+
 
     def __repr__(self):
         return f"< Message : {self.message}, Sender: {self.user}, Channel: {self.channel} >"
 
+    def to_json(self):
+        return {
+        'mid':self.id,
+        'room':self.channel.title,
+        'room_id': self.channel_id,
+        'user': self.user.display_name,
+        'message': self.message,
+        'dttm':self.dttm.__str__()
+        }

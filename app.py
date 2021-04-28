@@ -37,44 +37,64 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"]=False
 db.init_app(app)
 
 # Event Handlers
+@socketio.on("join all")
+def on_join_all(data):
+    user=User.exists(username=session.get("user"))
+    if user is not None:
+        for channel in user.channels:
+            join_room(channel.id)
+    print("socket connected")
+
+@socketio.on("leave all")
+def on_leave_all(data):
+    user=User.exists(username=session.get("user"))
+    if user is not None:
+        for channel in user.channels:
+            leave_room(channel.id)
+    print("socket disconnected")
 
 @socketio.on('join')
-def on_join(data):
+def on_join(data): ##BUG Duplicate join
     print('join request') # debug
     username=session.get('user')
+    user=User.exists(username=username)
     room=data.get('room')
-    
-    if 'user' in session and username is not None and room is not None:
-        print(username,room)
-        if User.query.filter_by(username=session['user']).first().verified and len(room)>0 and room!="undefined":
-            print("socket connected")
-            join_room(room)
-            user_id=User.query.filter_by(username=username).first().user_id
-            channel=Channel.query.filter_by(channel=room).first()
-            if channel is None:
-                channel=Channel.create(channel=room)
-            channel_id=channel.id
-            if Member.query.filter(and_(Member.user_id==user_id,Member.channel_id==channel_id)).first() is None:
-                member=Member(user_id=user_id,channel_id=channel_id)
-                db.session.add(member)
-                db.session.commit()
-                data={'display_name':User.query.filter_by(username=username).first().display_name, 'username':username, "room":room}
-                emit('join status', data, room=room)
+    room_id=data.get('room_id') 
+    if user is not None and room_id is not None and room is not None:
+        print(username,room, room_id)
+        
+        if user.verified and len(room)>0 and room!="undefined":
+            print("socket connected") # Debug
+            
+            
+            channel=Channel.exists(id=room_id)            
+            if not user.is_member(channel):
+
+                if channel is None:
+                    channel=Channel.create(id=room_id,title=room)
+                
+                member=Member.create(user_id=user.user_id,channel_id=channel.id)
+                join_room(channel.id)
+                data={'display_name':user.display_name, 'username':username, "room":channel.title}
+                emit('join status', data, room=channel.id)
+                print("joined successfully")
 
 
 @socketio.on('leave')
 def on_leave(data):
-    username=session['user']
-    room=data['room']
-    if User.query.filter_by(username=username).first().verified and room in [c.channel for c in User.query.filter_by(username=session['user']).first().channels]:
-        member=Member.query.filter(and_(Member.user_id==(User.query.filter_by(username=username).first().user_id),
-        Member.channel_id==(Channel.query.filter_by(channel=room).first().id ) )).first()
+    username=session.get('user')
+    room_id=data.get('room')
+    user=User.exists(username=username)
+    channel=Channel.exists(id=room_id)
+    if user is not None and user.is_member(channel):
+        member=Member.query.filter(and_(Member.user_id==user.user_id,
+        Member.channel_id==channel.id  )).first()
         db.session.delete(member)
         db.session.commit()
-        data = {'display_name':User.query.filter_by(username=session['user']).first().display_name, 'username':username, "room": room}
+        data = {'display_name':user.display_name, 'username':username, "room": channel.id}
         print("You left")
-        emit('leave status', data, room=room)
-        leave_room(room)
+        emit('leave status', data, room=channel.id)
+        leave_room(channel.id)
         print("status has been sent")
 
 
@@ -83,26 +103,24 @@ def on_send_message(data):
     if 'user' in session:
         message=data["message"]
         username=session['user']
-        room=data['room']
+        room_id=data['room']
+        channel=Channel.exists(id=room_id)
+        user=User.exists(username=session['user'])
         print("Mesage received")
-        if User.query.filter_by(username=session['user']).first().verified and room in [c.channel for c in User.query.filter_by(username=session['user']).first().channels]:
+        if user is not None and channel is not None and user.is_member(channel):
             chat={}
-
-            channel_id=Channel.query.filter_by(channel=data['room']).first().id
-            user_id=User.query.filter_by(username=username).first().user_id
-            newMessage=Message(channel_id=channel_id,user_id=user_id,message=message)
-            db.session.add(newMessage)
-            db.session.commit()
-            chat={"message":newMessage.message,"user":User.query.get(newMessage.user_id).display_name, "room":Channel.query.get(newMessage.channel_id).channel,"time":newMessage.dttm.strftime("%I:%M %p") }
+            newMessage=Message.create(channel_id=channel.id,user_id=user.user_id,message=message)
             print("Debug: mesage will be sent")
-            join_room(room)
-            emit('receive message', chat,room=room)
+            # join_room(room_id)
+            emit('receive message', newMessage.to_json(),room=room_id)
+    else:
+        raise ConnectionRefusedError
 
 
 @app.route('/api/signup', methods=["POST"])
-def signup():
+def signup_api():
     if 'user' in session:
-        return {'success': False}        
+        return {'success': False}
 
     username=request.form.get("username")
     password=request.form.get("password")
@@ -111,14 +129,10 @@ def signup():
     try:
         if bool(emailPattern.match(username)):
             if username.lower()!='admin' and User.query.filter_by(username=username).first() is None:
-                user=User(username=username,password=password,display_name=display_name,verified=True)
-                db.session.add(user)
-                db.session.commit()
-                session['user']=username
+                user=User.create(username=username,password=password,display_name=display_name,verified=True)
+
                 return {'success': True}
-            else:
-                return {'success': False}
-        else:
+
             return {'success':False }
     except:
         return { 'success':False }
@@ -127,25 +141,25 @@ def signup():
 def login_api():
     if 'user' in session:
         return {
-            'success': True, 
+            'success': True,
             'user':{
-                'username':session['user'], 
-                'display_name':session['display_name']
+                'username':session.get('user'),
+                'display_name':session.get('display_name')
                 }
             }
 
     if request.method=='POST':
         username=request.form.get("username")
         password=request.form.get("password")
-        print(username, password)
-        user=User.query.filter(and_(User.username==username,User.password==password)).first() 
+        print(username, password) ## DEBUG
+        user=User.auth(username=username, password=password)
         if user is not None:
             session['user']=user.username
             session['display_name']=user.display_name
             return {
-                'success': True, 
+                'success': True,
                 'user':{
-                    'username':user.username, 
+                    'username':user.username,
                     'display_name':user.display_name
                     }
                 }
@@ -158,62 +172,58 @@ def logout_api():
     return {'success':True}
 
 
-@app.route('/channel_list',methods=["POST"])
+@app.route('/api/channel_list',methods=["POST"])
 def channel_list():
     if 'user' in session:
         channels = User.get_channels(username=session['user'])
         channel_names = []
         for c in channels:
-            channel_names.append(c.channel)
+            channel_names.append(c.preview())
         if len(channel_names)==0:
-            return {"success":False}
+            return {
+            "success":False,
+            'message': 'No Channel Found'
+            }
 
         return {
-            "success":True, 
-            "channels": channel_names 
+            "success":True,
+            "channels": channel_names
             }
     else:
         return { "success": False }
 
 
-@app.route('/chats', methods=['POST'])
+@app.route('/api/chats', methods=['POST'])
 def chat():
     if 'user' in session:
         room=request.form.get("roomname")
         oldest=request.form.get("oldest")
-        channel=Channel.exists(room)
+        limit=request.form.get("limit")
+        if limit is None:
+            limit=50
+        else:
+            try:
+                limit=int(limit)
+            except:
+                limit=50
+        channel=Channel.exists(id=room)
         user=User.exists(session.get("user"))
         if channel is not None and user is not None and user.is_member(channel):
             messages=[]
             if oldest is None:
-                for m in channel.messages:
-                    messages.append({
-                        "mid": m.id,
-                        "message":m.message,
-                        "user":m.user.display_name,
-                        "room":m.channel.channel,
-                        "time":m.dttm.strftime("%I:%M %p")
-                        })
+                messages=[m.to_json() for m in channel.messages[:limit]]
                 return {
-                    "success":True, 
-                    "message": messages 
-                    }  
+                    "success":True,
+                    "message": messages
+                }
             else:
                 try:
                     oldest=int(oldest)
-                    for m in channel.messages:
-                        if m.id < oldest:
-                            messages.append({
-                                "mid": m.id,
-                                "message":m.message,
-                                "user":m.user.display_name,
-                                "room":m.channel.channel,
-                                "time":m.dttm.strftime("%I:%M %p")
-                                })  
+                    messages=[m.to_json() for m in channel.messages if m.id<oldest]
                     return {
-                        "success":True, 
-                        "message": messages 
-                        }
+                        "success":True,
+                        "message": messages
+                    }
                 except:
                     return {
                         "success": False
@@ -223,6 +233,14 @@ def chat():
     else:
         return {"success":False}
 
+@app.route('/api/channels/match_title', methods=['POST'])
+def match_channel_title():
+    if 'user' in session:
+        title=request.form.get('title')
+        if title is not None:
+            return { 'success': True, **Channel.matches(title) }
+
+    return { 'success': False }
 
 def main():
     db.create_all()
