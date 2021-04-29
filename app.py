@@ -14,10 +14,15 @@ from flask_socketio import (
 )
 from flask_cors import CORS
 from sqlalchemy import and_
+from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
+import jwt
+import uuid
+import datetime
 from models import *
 
 app = Flask(__name__)
-CORS(app)
+CORS(app,supports_credentials=True)
 
 # Check for environment variable
 if not os.getenv("DATABASE_URL"):
@@ -39,22 +44,47 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"]=False
 
 db.init_app(app)
 
+def token_required(f):
+    @wraps(f)
+    def decorator(*args, **kwargs):
+        token=None
+        if 'x-access-tokens' in request.headers:
+            token=request.headers['x-access-tokens']
+
+        if not token:
+            return {
+            'success': False,
+            'message': 'valid token is missing'
+            }
+        try:
+            data= jwt.decode(token, app.config['SECRET_KEY'],algorithms=['HS256'])
+            current_user= User.exists(user_id=data['user_id'])
+        except:
+            return {
+            'success': False,
+            'message': 'token is invalid'
+            }
+        return f(current_user,*args,**kwargs)
+    return decorator
+
+
 # Event Handlers
 @socketio.on("join all")
-def on_join_all(data):
-    user=User.exists(username=session.get("user"))
-    if user is not None:
-        for channel in user.channels:
+@token_required
+def on_join_all(current_user, data):
+    if current_user is not None:
+        for channel in current_user.channels:
             join_room(channel.id)
-    print("socket connected")
+        print("socket connected")
 
 @socketio.on("leave all")
-def on_leave_all(data):
-    user=User.exists(username=session.get("user"))
-    if user is not None:
-        for channel in user.channels:
+@token_required
+def on_leave_all(current_user,data):
+
+    if current_user is not None:
+        for channel in current_user.channels:
             leave_room(channel.id)
-    print("socket disconnected")
+            print("socket disconnected")
 
 @socketio.on('join')
 def on_join(data):
@@ -102,17 +132,16 @@ def on_leave(data):
 
 
 @socketio.on("send message")
-def on_send_message(data):
-    if 'user' in session:
+@token_required
+def on_send_message(current_user, data):
+    if current_user is not None:
         message=data["message"]
-        username=session['user']
         room_id=data['room']
         channel=Channel.exists(id=room_id)
-        user=User.exists(username=session['user'])
         print("Mesage received")
-        if user is not None and channel is not None and user.is_member(channel):
+        if current_user is not None and channel is not None and current_user.is_member(channel):
             chat={}
-            newMessage=Message.create(channel_id=channel.id,user_id=user.user_id,message=message)
+            newMessage=Message.create(channel_id=channel.id,user_id=current_user.user_id,message=message)
             print("Debug: mesage will be sent")
             emit('receive message', newMessage.to_json(),room=room_id)
     else:
@@ -141,14 +170,14 @@ def signup_api():
 
 @app.route('/api/login',methods=['POST','GET'])
 def login_api():
-    if 'user' in session:
-        return {
-            'success': True,
-            'user':{
-                'username':session.get('user'),
-                'display_name':session.get('display_name')
-                }
-            }
+    # if 'user' in session:
+    #     return {
+    #         'success': True,
+    #         'user':{
+    #             'username':session.get('user'),
+    #             'display_name':session.get('display_name')
+    #             }
+    #         }
 
     if request.method=='POST':
         username=request.form.get("username")
@@ -156,93 +185,113 @@ def login_api():
         print(username, password) ## DEBUG
         user=User.auth(username=username, password=password)
         if user is not None:
-            session['user']=user.username
-            session['display_name']=user.display_name
+            # session['user']=user.username
+            # session['display_name']=user.display_name
+            token=jwt.encode({
+            'user_id':user.user_id,
+            'exp':datetime.datetime.utcnow()+datetime.timedelta(minutes=30)
+            }, app.config['SECRET_KEY'], algorithm="HS256")
             return {
                 'success': True,
                 'user':{
                     'username':user.username,
                     'display_name':user.display_name
-                    }
+                    },
+                'token': token
                 }
 
     return {'success': False}
 
+@app.route('/api/auth')
+@token_required
+def is_auth(current_user):
+    if not current_user:
+        return { 'success': False }
+
+    return {
+        'success': True,
+        'user':{
+            'username':current_user.username,
+            'display_name':current_user.display_name
+            }
+        }
+
 @app.route('/api/logout', methods=["POST"])
-def logout_api():
-    session.clear()
+@token_required
+def logout_api(current_user):
+    # session.clear()
     return {'success':True}
 
 
 @app.route('/api/channel_list',methods=["POST"])
-def channel_list():
-    if 'user' in session:
-        channels = User.get_channels(username=session['user'])
-        channel_names = []
-        for c in channels:
-            channel_names.append(c.preview())
-        if len(channel_names)==0:
-            return {
-            "success":False,
-            'message': 'No Channel Found'
-            }
-
-        return {
-            "success":True,
-            "channels": channel_names
-            }
-    else:
-        return { "success": False }
+@token_required
+def channel_list(current_user):
+    # if 'user' in session:
+    #channels = User.get_channels(username=session['user'])
+    channels=current_user.channels
+    channel_names = []
+    for c in channels:
+        channel_names.append(c.preview())
+    return {
+        "success":True,
+        "channels": channel_names
+        }
+    # else:
+    #     return { "success": False }
 
 
 @app.route('/api/chats', methods=['POST'])
-def chat():
-    if 'user' in session:
-        room=request.form.get("roomname")
-        oldest=request.form.get("oldest")
-        limit=request.form.get("limit")
-        if limit is None:
+@token_required
+def chat(current_user):
+    #if 'user' in session:
+    room=request.form.get("roomname")
+    oldest=request.form.get("oldest")
+    limit=request.form.get("limit")
+    if limit is None:
+        limit=50
+    else:
+        try:
+            limit=int(limit)
+        except:
             limit=50
+    channel=Channel.exists(id=room)
+    #user=User.exists(session.get("user"))
+    user=current_user
+    if channel is not None and user is not None and user.is_member(channel):
+        messages=[]
+        if oldest is None:
+            messages=[m.to_json() for m in channel.messages[:limit]]
+            return {
+                "success":True,
+                "message": messages
+            }
         else:
             try:
-                limit=int(limit)
-            except:
-                limit=50
-        channel=Channel.exists(id=room)
-        user=User.exists(session.get("user"))
-        if channel is not None and user is not None and user.is_member(channel):
-            messages=[]
-            if oldest is None:
-                messages=[m.to_json() for m in channel.messages[:limit]]
+                oldest=int(oldest)
+                messages=[m.to_json() for m in channel.messages if m.id<oldest]
                 return {
                     "success":True,
                     "message": messages
                 }
-            else:
-                try:
-                    oldest=int(oldest)
-                    messages=[m.to_json() for m in channel.messages if m.id<oldest]
-                    return {
-                        "success":True,
-                        "message": messages
-                    }
-                except:
-                    return {
-                        "success": False
-                    }
-        else:
-            return {"success":False}
+            except:
+                return {
+                    "success": False
+                }
     else:
         return {"success":False}
+    # else:
+    #     return {"success":False}
 
 @app.route('/api/channels/match_title', methods=['POST'])
-def match_channel_title():
-    if 'user' in session:
+@token_required
+def match_channel_title(current_user):
+    #if 'user' in session:
+    try:
         title=request.form.get('title')
         if title is not None:
             return { 'success': True, **Channel.matches(title) }
-
-    return { 'success': False }
+    except:
+        return { 'success': False }
 
 def main():
     db.create_all()
