@@ -20,14 +20,15 @@ app = Flask(__name__)
 # Check for environment variable
 if not os.getenv("DATABASE_URL"):
     raise RuntimeError("DATABASE_URL is not set")
-
+if not os.getenv("SECRET_KEY"):
+    raise RuntimeError("SECRET_KEY is not set")
 # Configuration for session
 
 app.config["SESSION_PERMANENT"]=False
 app.config["SESSION_TYPE"]='filesystem'
 Session(app)
-app.config['SECRET_KEY'] = 'secret!'
-socketio = SocketIO(app, cors_allowed_origins='*') # need to update | security issue
+app.config['SECRET_KEY'] = os.getenv("SECRET_KEY")
+socketio = SocketIO(app, cors_allowed_origins=['https://flackweb.netlify.app','https://ranjitjana027.github.io/flackweb-react/'])
 
 # Configuartion for SQLAlchemy
 
@@ -54,25 +55,25 @@ def on_leave_all(data):
     print("socket disconnected")
 
 @socketio.on('join')
-def on_join(data): ##BUG Duplicate join
+def on_join(data):
     print('join request') # debug
     username=session.get('user')
     user=User.exists(username=username)
     room=data.get('room')
-    room_id=data.get('room_id') 
+    room_id=data.get('room_id')
     if user is not None and room_id is not None and room is not None:
         print(username,room, room_id)
-        
+
         if user.verified and len(room)>0 and room!="undefined":
             print("socket connected") # Debug
-            
-            
-            channel=Channel.exists(id=room_id)            
+
+
+            channel=Channel.exists(id=room_id)
             if not user.is_member(channel):
 
                 if channel is None:
                     channel=Channel.create(id=room_id,title=room)
-                
+
                 member=Member.create(user_id=user.user_id,channel_id=channel.id)
                 join_room(channel.id)
                 data={'display_name':user.display_name, 'username':username, "room":channel.title}
@@ -111,7 +112,6 @@ def on_send_message(data):
             chat={}
             newMessage=Message.create(channel_id=channel.id,user_id=user.user_id,message=message)
             print("Debug: mesage will be sent")
-            # join_room(room_id)
             emit('receive message', newMessage.to_json(),room=room_id)
     else:
         raise ConnectionRefusedError
