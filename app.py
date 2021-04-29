@@ -12,10 +12,12 @@ from flask_socketio import (
     join_room,
     leave_room
 )
+from flask_cors import CORS
 from sqlalchemy import and_
 from models import *
 
 app = Flask(__name__)
+CORS(app)
 
 # Check for environment variable
 if not os.getenv("DATABASE_URL"):
