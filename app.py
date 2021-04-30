@@ -67,20 +67,26 @@ def token_required(f):
         return f(current_user,*args,**kwargs)
     return decorator
 
+def get_token_user(token: str) ->'User':
+    try:
+        data= jwt.decode(token, app.config['SECRET_KEY'],algorithms=['HS256'])
+        current_user= User.exists(user_id=data['user_id'])
+        return current_user
+    except:
+        return None
 
 # Event Handlers
 @socketio.on("join all")
-@token_required
-def on_join_all(current_user, data):
+def on_join_all(data):
+    current_user=get_token_user(data.get('token'))
     if current_user is not None:
         for channel in current_user.channels:
             join_room(channel.id)
         print("socket connected")
 
 @socketio.on("leave all")
-@token_required
-def on_leave_all(current_user,data):
-
+def on_leave_all(data):
+    current_user=get_token_user(data.get('token'))
     if current_user is not None:
         for channel in current_user.channels:
             leave_room(channel.id)
@@ -89,17 +95,14 @@ def on_leave_all(current_user,data):
 @socketio.on('join')
 def on_join(data):
     print('join request') # debug
-    username=session.get('user')
-    user=User.exists(username=username)
+    user=get_token_user(data.get('token'))
     room=data.get('room')
     room_id=data.get('room_id')
     if user is not None and room_id is not None and room is not None:
-        print(username,room, room_id)
+        print(user,room, room_id)
 
         if user.verified and len(room)>0 and room!="undefined":
             print("socket connected") # Debug
-
-
             channel=Channel.exists(id=room_id)
             if not user.is_member(channel):
 
@@ -108,23 +111,22 @@ def on_join(data):
 
                 member=Member.create(user_id=user.user_id,channel_id=channel.id)
                 join_room(channel.id)
-                data={'display_name':user.display_name, 'username':username, "room":channel.title}
+                data={'display_name':user.display_name, 'username':user.username, "room":channel.title}
                 emit('join status', data, room=channel.id)
                 print("joined successfully")
 
 
 @socketio.on('leave')
 def on_leave(data):
-    username=session.get('user')
     room_id=data.get('room')
-    user=User.exists(username=username)
+    user=get_token_user(data.get('token'))
     channel=Channel.exists(id=room_id)
     if user is not None and user.is_member(channel):
         member=Member.query.filter(and_(Member.user_id==user.user_id,
         Member.channel_id==channel.id  )).first()
         db.session.delete(member)
         db.session.commit()
-        data = {'display_name':user.display_name, 'username':username, "room": channel.id}
+        data = {'display_name':user.display_name, 'username':user.username, "room": channel.id}
         print("You left")
         emit('leave status', data, room=channel.id)
         leave_room(channel.id)
@@ -132,8 +134,8 @@ def on_leave(data):
 
 
 @socketio.on("send message")
-@token_required
-def on_send_message(current_user, data):
+def on_send_message(data):
+    current_user=get_token_user(data.get('token'))
     if current_user is not None:
         message=data["message"]
         room_id=data['room']
@@ -145,6 +147,7 @@ def on_send_message(current_user, data):
             print("Debug: mesage will be sent")
             emit('receive message', newMessage.to_json(),room=room_id)
     else:
+        print(current_user)
         raise ConnectionRefusedError
 
 
