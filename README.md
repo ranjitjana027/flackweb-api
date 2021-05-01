@@ -1,5 +1,5 @@
 ## flackweb-api
-> API for flackweb-react
+> Flask API server for flackweb-react
 
 > Frontend: [flackweb-react](https://github.com/ranjitjana027/flackweb-react)
 
