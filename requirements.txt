@@ -6,7 +6,7 @@ click==7.1.2
 cryptography==3.4.7
 DateTime==4.3
 dnspython==1.16.0
-eventlet==0.30.2
+eventlet==0.31.0
 Flask==1.1.2
 Flask-Cors==3.0.10
 Flask-Migrate==2.7.0
