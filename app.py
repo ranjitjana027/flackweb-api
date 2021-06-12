@@ -137,11 +137,11 @@ def on_leave(data):
 def on_send_message(data):
     current_user=get_token_user(data.get('token'))
     if current_user is not None:
-        message=data["message"]
-        room_id=data['room']
+        message=data.get("message",'')
+        room_id=data.get('room')
         channel=Channel.exists(id=room_id)
         print("Mesage received")
-        if current_user is not None and channel is not None and current_user.is_member(channel):
+        if current_user is not None and channel is not None and message!='' and current_user.is_member(channel):
             chat={}
             newMessage=Message.create(channel_id=channel.id,user_id=current_user.user_id,message=message)
             print("Debug: mesage will be sent")
@@ -173,15 +173,6 @@ def signup_api():
 
 @app.route('/api/login',methods=['POST','GET'])
 def login_api():
-    # if 'user' in session:
-    #     return {
-    #         'success': True,
-    #         'user':{
-    #             'username':session.get('user'),
-    #             'display_name':session.get('display_name')
-    #             }
-    #         }
-
     if request.method=='POST':
         username=request.form.get("username")
         password=request.form.get("password")
@@ -225,12 +216,9 @@ def logout_api(current_user):
     # session.clear()
     return {'success':True}
 
-
 @app.route('/api/channel_list',methods=["POST"])
 @token_required
 def channel_list(current_user):
-    # if 'user' in session:
-    #channels = User.get_channels(username=session['user'])
     channels=current_user.channels
     channel_names = []
     for c in channels:
@@ -239,9 +227,6 @@ def channel_list(current_user):
         "success":True,
         "channels": channel_names
         }
-    # else:
-    #     return { "success": False }
-
 
 @app.route('/api/chats', methods=['POST'])
 @token_required
@@ -282,19 +267,29 @@ def chat(current_user):
                 }
     else:
         return {"success":False}
-    # else:
-    #     return {"success":False}
 
 @app.route('/api/channels/match_title', methods=['POST'])
 @token_required
 def match_channel_title(current_user):
-    #if 'user' in session:
     try:
         title=request.form.get('title')
         if title is not None:
             return { 'success': True, **Channel.matches(title) }
     except:
         return { 'success': False }
+
+@app.route('/api/channels/match_id', methods=['POST'])
+@token_required
+def match_channel_id(current_user):
+    try:
+        id=request.form.get('id')
+        print(id)
+        if id is not None:
+            return { 'success': Channel.exists(id=id) is not None }
+        else:
+            return { 'success': False}
+    except:
+        return { 'success': False}
 
 def main():
     db.create_all()

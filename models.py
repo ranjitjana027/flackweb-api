@@ -51,7 +51,7 @@ class User(BaseMixin, TimestampMixin, db.Model):
             return None
 
     @classmethod
-    def get_channels(cls,username : str =None, user_id : int =None, display_name : str =None) -> list['Channel']:
+    def get_channels(cls,username : str =None, user_id : int =None, display_name : str =None) :
         user =User.exists(username,user_id,display_name)
         if user is not None:
             return user.channels
@@ -117,7 +117,7 @@ class Message(BaseMixin, db.Model):
     id=db.Column(db.Integer,primary_key=True)
     channel_id=db.Column(db.String,db.ForeignKey("channels.id"),nullable=True) # receiver channel
     user_id=db.Column(db.Integer,db.ForeignKey("users.user_id"),nullable=True)  # sender
-    message=db.Column(db.String(255),nullable=False)
+    message=db.Column(db.Text,nullable=False)
     dttm=db.Column(db.DateTime(timezone=True),server_default=db.func.current_timestamp())
     status=db.Column(db.Boolean,default=False)
 
