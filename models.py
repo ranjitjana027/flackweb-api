@@ -32,6 +32,12 @@ class User(BaseMixin, TimestampMixin, db.Model):
     def is_member(self,channel:'Channel') -> bool:
         return channel in self.channels
 
+    def preview(self):
+        return {
+            'username': self.username,
+            'display_name': self.display_name
+        }
+
     @classmethod
     def auth(cls, username : str, password : str) -> 'User':
         user=cls.query.filter(
@@ -87,12 +93,14 @@ class Channel(BaseMixin, TimestampMixin, db.Model):
         return f"< {self.title} | {len(self.users)} Members >"
 
     def preview(self):
-        last_message= None if self.messages.count()==0 else self.messages[-1]
-        members_count=len(self.users)
+        last_message = None if self.messages.count()==0 else self.messages[-1]
+        members = list(map(lambda user: user.preview(), self.users))
+        members_count = len(members)
         return {
         'channel_id':self.id,
         'channel_name': self.title,
         'last_message': None if last_message is None else last_message.to_json(),
+        'members': members,
         'members_count': members_count,
         'created_on': self.created
         }
