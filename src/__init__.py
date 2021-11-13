@@ -1,14 +1,21 @@
 import os
 
+import sentry_sdk
 from flask import Flask
 from flask_cors import CORS
 from flask_session import Session
+from sentry_sdk.integrations.flask import FlaskIntegration
 
 from .db import db
 
 
 def create_app(test_config=None):
     # create and configure the app
+    sentry_sdk.init(
+        dsn=os.getenv("SENTRY_DSN"),
+        integrations=[FlaskIntegration()],
+        traces_sample_rate=1.0
+    )
     app = Flask(__name__, instance_relative_config=True)
     CORS(app, supports_credentials=True)
     # Check for environment variable
@@ -46,11 +53,6 @@ def create_app(test_config=None):
         os.makedirs(app.instance_path)
     except OSError:
         pass
-
-    # # a simple page that says hello
-    # @app.route('/hello')
-    # def hello():
-    #     return 'Hello, World!'
 
     from . import auth
     app.register_blueprint(auth.bp)
