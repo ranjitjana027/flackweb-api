@@ -3,6 +3,7 @@ import os
 import sentry_sdk
 from flask import Flask
 from flask_cors import CORS
+from flask_migrate import Migrate
 from flask_session import Session
 from sentry_sdk.integrations.flask import FlaskIntegration
 
@@ -39,7 +40,9 @@ def create_app(test_config=None):
     #     DATABASE=os.path.join(app.instance_path, 'app.sqlite'),
     # )
 
+    migrate = Migrate()
     db.init_app(app)
+    migrate.init_app(app, db)
 
     if test_config is None:
         # load the instance config, if it exists, when not testing
