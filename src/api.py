@@ -3,7 +3,7 @@ from flask import (
     request
 )
 
-from app.auth import login_required
+from .auth import login_required
 from .db import Channel
 
 bp = Blueprint('chat', __name__)

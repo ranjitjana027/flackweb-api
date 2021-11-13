@@ -1,7 +1,7 @@
 from flask_socketio import SocketIO, join_room, leave_room, emit
 from sqlalchemy import and_
 
-from app.auth import get_token_user
+from .auth import get_token_user
 from .db import Channel, Member, db, Message
 
 socketio = SocketIO(cors_allowed_origins='*')
