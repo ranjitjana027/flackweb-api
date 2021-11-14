@@ -1,5 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import and_
+from werkzeug.security import check_password_hash
 
 db = SQLAlchemy()
 
@@ -42,10 +43,10 @@ class User(BaseMixin, TimestampMixin, db.Model):
 
     @classmethod
     def auth(cls, username: str, password: str) -> 'User':
-        user = cls.query.filter(
-            and_(cls.username == username, cls.password == password)
-        ).first()
-        return user
+        user = cls.query.filter_by(username=username).first()
+        if (user is not None) and (check_password_hash(user.password, password)):
+            return user
+        return None
 
     @classmethod
     def exists(cls, username: str = None, user_id: int = None, display_name: str = None) -> 'User':
@@ -76,6 +77,12 @@ class Member(BaseMixin, db.Model):
 
     # user=db.relationship("User",backref=db.backref("members",cascade="all, delete-orphan"))
     # channel=db.relationship("Channel",backref=db.backref("members",cascade="all, delete-orphan"))
+
+    @classmethod
+    def leave_channel(cls, user_id: int, channel_id: str):
+        member = cls.query.filter(and_(cls.user_id == user_id, cls.channel_id == channel_id)).first()
+        db.session.delete(member)
+        db.session.commit()
 
 
 class Channel(BaseMixin, TimestampMixin, db.Model):
