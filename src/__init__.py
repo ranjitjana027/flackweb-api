@@ -3,7 +3,7 @@ import os
 import sentry_sdk
 from flask import Flask
 from flask_cors import CORS
-from flask_session import Session
+from flask_migrate import Migrate
 from sentry_sdk.integrations.flask import FlaskIntegration
 
 from .db import db
@@ -23,23 +23,17 @@ def create_app(test_config=None):
         raise RuntimeError("DATABASE_URL is not set")
     if not os.getenv("SECRET_KEY"):
         raise RuntimeError("SECRET_KEY is not set")
-    # Configuration for session
 
-    app.config["SESSION_PERMANENT"] = False
-    app.config["SESSION_TYPE"] = 'filesystem'
-    Session(app)
     app.config['SECRET_KEY'] = os.getenv("SECRET_KEY")
 
-    # Configuartion for SQLAlchemy
+    # Configuration for SQLAlchemy
 
     app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL").replace('postgres://', 'postgresql://')
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    # app.config.from_mapping(
-    #     SECRET_KEY='dev',
-    #     DATABASE=os.path.join(app.instance_path, 'app.sqlite'),
-    # )
 
+    migrate = Migrate()
     db.init_app(app)
+    migrate.init_app(app, db)
 
     if test_config is None:
         # load the instance config, if it exists, when not testing
