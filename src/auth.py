@@ -6,6 +6,7 @@ import jwt
 from flask import (
     Blueprint, request, session, current_app
 )
+from werkzeug.security import generate_password_hash
 
 from .db import User
 
@@ -58,7 +59,7 @@ def signup_api():
     try:
         if bool(emailPattern.match(username)):
             if username.lower() != 'admin' and User.query.filter_by(username=username).first() is None:
-                user = User.create(username=username, password=password, display_name=display_name, verified=True)
+                user = User.create(username=username, password=generate_password_hash(password), display_name=display_name, verified=True)
 
                 return {'success': True}
 
@@ -72,11 +73,8 @@ def login_api():
     if request.method == 'POST':
         username = request.form.get("username")
         password = request.form.get("password")
-        print(username, password)  ## DEBUG
         user = User.auth(username=username, password=password)
         if user is not None:
-            # session['user']=user.username
-            # session['display_name']=user.display_name
             token = jwt.encode({
                 'user_id': user.user_id,
                 'exp': datetime.datetime.utcnow() + datetime.timedelta(minutes=30)
