@@ -1,5 +1,4 @@
 from flask_socketio import SocketIO, join_room, leave_room, emit
-from sqlalchemy import and_
 
 from .auth import get_token_user
 from .db import Channel, Member, db, Message
@@ -56,11 +55,7 @@ def on_leave(data):
     user = get_token_user(data.get('token'))
     channel = Channel.exists(id=room_id)
     if user is not None and user.is_member(channel):
-        # todo
-        member = Member.query.filter(and_(Member.user_id == user.user_id,
-                                          Member.channel_id == channel.id)).first()
-        db.session.delete(member)
-        db.session.commit()
+        Member.leave_channel(user.user_id, channel.id)
         data = {'display_name': user.display_name, 'username': user.username, "room": channel.id}
         print("You left")
         emit('leave status', data, room=channel.id)
