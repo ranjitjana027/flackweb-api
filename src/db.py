@@ -1,5 +1,5 @@
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
 from werkzeug.security import check_password_hash
 
 db = SQLAlchemy()
@@ -41,6 +41,21 @@ class User(BaseMixin, TimestampMixin, db.Model):
             'display_name': self.display_name
         }
 
+    def get_dm_channel(self, peer: str) -> 'Channel':
+        # TODO: expand to multiple user
+        user = User.exists(username=peer)
+        # TODO: use better hashing mechnaism
+        channel_id = f"{self.username}_{user.username}" if self.username < user.username else f"{user.username}_{self.username}"
+        channel = Channel.exists(id=channel_id)
+        if channel is None:
+            channel_name = f"{self.display_name}_{user.display_name}" if self.username < user.username else f"{user.display_name}_{self.display_name}"
+            channel = Channel.create(id=channel_id, title=channel_name, is_channel=False)
+        return channel
+
+    def get_dm_messages(self, peer: str):
+        dm_channel = self.get_dm_channel(peer)
+        return dm_channel.messages
+
     @classmethod
     def auth(cls, username: str, password: str) -> 'User':
         user = cls.query.filter_by(username=username).first()
@@ -67,6 +82,14 @@ class User(BaseMixin, TimestampMixin, db.Model):
         else:
             return []
 
+    @classmethod
+    def matches(cls, title: str):
+        users = cls.query.filter(or_(cls.username.ilike(f"%{title}%"), cls.display_name.ilike(f"%{title}%"))).all()
+        return {
+            'title': title,
+            'matches': [c.preview() for c in users]
+        }
+
 
 class Member(BaseMixin, db.Model):
     __tablename__ = "members"
@@ -87,9 +110,9 @@ class Member(BaseMixin, db.Model):
 
 class Channel(BaseMixin, TimestampMixin, db.Model):
     __tablename__ = "channels"
-    # username=db.Column(db.String,db.ForeignKey("users.username"),nullable=False)
     id = db.Column(db.String, primary_key=True)  # channel id, public url
     title = db.Column(db.String, nullable=False)  # change to title
+    is_channel = db.Column(db.Boolean, default=True)
 
     # users=db.relationship("User",secondary="members")
 
@@ -106,10 +129,12 @@ class Channel(BaseMixin, TimestampMixin, db.Model):
             'channel_id': self.id,
             'channel_name': self.title,
             'last_message': None if last_message is None else last_message.to_json(),
+            'is_channel': self.is_channel or True,
             'members': members,
             'members_count': members_count,
             'created_on': self.created
         }
+
 
     @classmethod
     def exists(cls, id: str = None, title: str = None) -> 'Channel':
@@ -122,7 +147,7 @@ class Channel(BaseMixin, TimestampMixin, db.Model):
         channels = Channel.query.filter(Channel.title.ilike(f"%{title}%")).all()
         return {
             'title': title,
-            'matches': [c.preview() for c in channels]
+            'matches': [c.preview() for c in channels if c.is_channel]
         }
 
 
@@ -139,11 +164,48 @@ class Message(BaseMixin, db.Model):
         return f"< Message : {self.message}, Sender: {self.user}, Channel: {self.channel} >"
 
     def to_json(self):
+        """Converts message to a json object"""
         return {
             'mid': self.id,
             'room': self.channel.title,
             'room_id': self.channel_id,
             'user': self.user.display_name,
             'message': self.message,
-            'dttm': self.dttm.__str__()
+            'timestamp': self.dttm.__str__()
         }
+
+    def to_user_json(self, username: str):
+        """Converts to a json object for sender of dm"""
+        json_message = self.to_json() 
+        user = User().exists(username)
+        if user is None:
+            return self.to_json()
+        room = ", ".join(list(filter(lambda x: x != user.display_name, json_message["room"].split("_"))))
+        room_id = ", ".join(list(filter(lambda x: x != user.username, json_message["room_id"].split("_"))))
+        return {
+            **json_message,
+            'room': room,
+            'room_id': room_id,
+        }
+
+
+class Connection(BaseMixin, TimestampMixin, db.Model):
+    __tablename__ = "connections"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.user_id"), nullable=True)
+    peer_id = db.Column(db.Integer, db.ForeignKey("users.user_id"), nullable=True)
+    is_blocked = db.Column(db.Boolean, default=False)
+
+    @classmethod
+    def get_connection_list(cls, user_id: int):
+        connections = cls.query.filter(and_(cls.user_id == user_id, cls.is_blocked == False)).all()
+        connection_list = []
+        for peer_id in connections:
+            peer = User.exists(user_id=peer_id)
+            if peer is not None:
+                connection_list.append(peer.preview())
+        return connection_list
+
+    @classmethod
+    def exists(cls, user_id: int, peer_id: int):
+        return cls.filter(and_(cls.user_id==user_id, cls.peer_id==peer_id)).first()
