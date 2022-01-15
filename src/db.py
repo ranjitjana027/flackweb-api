@@ -191,6 +191,9 @@ class Message(BaseMixin, db.Model):
 
 class Connection(BaseMixin, TimestampMixin, db.Model):
     __tablename__ = "connections"
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'peer_id', name='unique_user_peer'),
+    )
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.user_id"), nullable=True)
     peer_id = db.Column(db.Integer, db.ForeignKey("users.user_id"), nullable=True)
@@ -200,12 +203,19 @@ class Connection(BaseMixin, TimestampMixin, db.Model):
     def get_connection_list(cls, user_id: int):
         connections = cls.query.filter(and_(cls.user_id == user_id, cls.is_blocked == False)).all()
         connection_list = []
-        for peer_id in connections:
-            peer = User.exists(user_id=peer_id)
+        for connection in connections:
+            peer = User.exists(user_id=connection.peer_id)
             if peer is not None:
                 connection_list.append(peer.preview())
         return connection_list
 
     @classmethod
     def exists(cls, user_id: int, peer_id: int):
-        return cls.filter(and_(cls.user_id==user_id, cls.peer_id==peer_id)).first()
+        return cls.query.filter(and_(cls.user_id==user_id, cls.peer_id==peer_id)).first()
+
+    @classmethod
+    def create_if_not_exists(cls, user_id: int, peer_id: int):
+        connection = cls.exists(user_id, peer_id)
+        if connection is None:
+            conection = cls.create(user_id=user_id, peer_id=peer_id)
+        return connection
