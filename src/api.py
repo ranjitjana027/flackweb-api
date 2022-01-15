@@ -127,5 +127,5 @@ def add_connection(current_user):
     peer_username = body.get("peer")
     peer = User.exists(username=peer_username)
     if peer is not None and Connection().exists(user_id=current_user.user_id, peer_id=peer.user_id) is None:
-        Connection.create(user_id=current_user.user_id, peer_id=peer.user_id)
+        Connection.create_if_not_exists(user_id=current_user.user_id, peer_id=peer.user_id)
     return {'success': True}

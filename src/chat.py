@@ -1,7 +1,7 @@
 from flask_socketio import SocketIO, join_room, leave_room, emit
 
 from .auth import get_token_user
-from .db import Channel, Member, Message, User
+from .db import Channel, Member, Message, User, Connection
 
 socketio = SocketIO(cors_allowed_origins='*')
 
@@ -100,10 +100,12 @@ def on_send_message(data):
         is_channel = data.get('isChannel')
         if not is_channel:
             channel = current_user.get_dm_channel(peer=room_id)
+            peer = User.exists(username=room_id)
+            Connection.create_if_not_exists(user_id=current_user.user_id, peer_id=peer.user_id)
         else:
             channel = Channel.exists(id=room_id)
         print("Mesage received")
-        if current_user is not None and channel is not None and message != '' and ((not is_channel and Connection.exists(current_user.user_id, room_id)) or current_user.is_member(channel)):
+        if current_user is not None and channel is not None and message != '' and ((not is_channel and Connection.exists(current_user.user_id, peer.user_id)) or current_user.is_member(channel)):
             new_message = Message.create(channel_id=channel.id, user_id=current_user.user_id, message=message)
             print("Debug: mesage will be sent")
             if is_channel:
