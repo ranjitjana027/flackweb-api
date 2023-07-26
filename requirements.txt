@@ -2,7 +2,7 @@ alembic==1.7.5
 bidict==0.21.4
 blinker==1.4
 cachelib==0.4.1
-certifi==2021.10.8
+certifi==2023.7.22
 cffi==1.15.0
 click==8.0.3
 cryptography==35.0.0
