@@ -21,7 +21,7 @@ gunicorn @ git+https://github.com/benoitc/gunicorn.git@ff58e0c6da83d5520916bc4cc
 importlib-metadata==4.8.2
 importlib-resources==5.4.0
 itsdangerous==2.0.1
-Jinja2==3.0.3
+Jinja2==3.1.3
 Mako==1.1.5
 MarkupSafe==2.0.1
 psycopg2-binary==2.9.2
